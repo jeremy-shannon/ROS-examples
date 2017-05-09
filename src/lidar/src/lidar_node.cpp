@@ -184,6 +184,7 @@ int main(int argc, char** argv)
   // Setup indicies in point clouds
 /*
   int index = 0;
+  ROS_INFO("x");
   double x, y;
   for(int i = 0; i < IMAGE_HEIGHT; ++i){
     for(int j = 0; j < IMAGE_WIDTH; ++j){
