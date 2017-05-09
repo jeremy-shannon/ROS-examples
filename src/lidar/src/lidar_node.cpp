@@ -140,14 +140,22 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
         }
       }
     }
-  // Display iamge
+  
+  // Draw a pretty little circle
+  int c_x, c_y;
+  map_pc2rc(0.0, 0.0, &c_x, &c_y); 
+  cv::circle(*heightmap, Point(c_x,c_y), 10, Scalar(255,255,255), 1);
+
+  // Display image
   cv::imshow("Height Map", *heightmap);
 
   // Save image to disk
+  /*
   char filename[100];
   snprintf(filename, 100, "images/image_%d.png", fnameCounter);
   cv::imwrite(filename, *heightmap, compression_params);
   ++fnameCounter;
+  */
 
   // Output height map to point cloud for python node to parse to PNG
   pcl::toROSMsg(*cloud_grid, output);
