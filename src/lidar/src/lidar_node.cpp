@@ -143,7 +143,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   
   // Draw a pretty little circle
   int c_x, c_y;
-  map_pc2rc(0.0, 0.0, &c_x, &c_y); 
+  map_pc2rc(0.0, 0.0, &c_y, &c_x); 
   cv::circle(*heightmap, Point(c_x,c_y), 10, Scalar(255,255,255), 1);
 
   // Display image
