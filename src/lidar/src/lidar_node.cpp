@@ -33,11 +33,11 @@ using namespace cv;
 
 // Global Publishers/Subscribers
 ros::Subscriber subPointCloud;
-ros::Publisher pubPointCloud;
+//ros::Publisher pubPointCloud;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
-pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_grid (new pcl::PointCloud<pcl::PointXYZ>);
-sensor_msgs::PointCloud2 output;
+//pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_grid (new pcl::PointCloud<pcl::PointXYZ>);
+//sensor_msgs::PointCloud2 output;
 
 double heightArray[IMAGE_HEIGHT][IMAGE_WIDTH];
 
@@ -120,11 +120,13 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   for(int i = 0; i < IMAGE_HEIGHT; ++i){
     for(int j = 0; j < IMAGE_WIDTH; ++j){
       // Add point to cloud
+      /*
       (void)map_rc2pc(&x, &y, i, j);
       cloud_grid->points[index].x = x;
       cloud_grid->points[index].y = y;
       cloud_grid->points[index].z = heightArray[i][j];
       ++index;
+      */
 
       // Add point to image
       cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
@@ -140,7 +142,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
         }
       }
     }
-  
+
   // Draw a pretty little circle
   int c_x, c_y;
   map_pc2rc(0.0, 0.0, &c_y, &c_x); 
@@ -158,10 +160,12 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   */
 
   // Output height map to point cloud for python node to parse to PNG
+  /*
   pcl::toROSMsg(*cloud_grid, output);
   output.header.stamp = ros::Time::now();
   output.header.frame_id = "velodyne";
   pubPointCloud.publish(output);
+  */
 
 }
 
@@ -172,9 +176,11 @@ int main(int argc, char** argv)
   ros::NodeHandle nh;
 
   // Setup output cloud
+  /*
   cloud_grid->width  = IMAGE_WIDTH;
   cloud_grid->height = IMAGE_HEIGHT;
   cloud_grid->points.resize (cloud_grid->width * cloud_grid->height);
+  */
 
   // Setup image
   cv::Mat map(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -208,7 +214,7 @@ int main(int argc, char** argv)
 */
 
   subPointCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 2, DEM);
-  pubPointCloud = nh.advertise<sensor_msgs::PointCloud2> ("/heightmap/pointcloud", 1);
+  //pubPointCloud = nh.advertise<sensor_msgs::PointCloud2> ("/heightmap/pointcloud", 1);
 
   ros::spin();
 
