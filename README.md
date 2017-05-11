@@ -1,5 +1,5 @@
 # height-map
-<img src="images/image_53.png" alt="height map" width="400px"></img>
+<img src="heightmap.png" alt="height map" width="400px"></img>
 
 Currently, this ROS workspace processes LIDAR data to create PNG "bird's eye" height maps for use in deep learning applications. All of the real code currently resides in ```/ros-examples/src/lidar/src/lidar_node.cpp```.
 
