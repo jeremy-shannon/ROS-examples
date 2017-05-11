@@ -24,6 +24,7 @@
 #include <ros/ros.h>
 #include <ros/console.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <nav_msgs/Odometry.h>
 
 #define IMAGE_HEIGHT	701
 #define IMAGE_WIDTH	801
@@ -34,10 +35,12 @@ using namespace cv;
 // Global Publishers/Subscribers
 ros::Subscriber subPointCloud;
 //ros::Publisher pubPointCloud;
+ros::Subscriber subObjRTK;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 //pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_grid (new pcl::PointCloud<pcl::PointXYZ>);
 //sensor_msgs::PointCloud2 output;
+nav_msgs::Odometry objRTK;
 
 double heightArray[IMAGE_HEIGHT][IMAGE_WIDTH];
 
@@ -56,11 +59,10 @@ int map_m2i(double val){
 // returns 0 if not in range, 1 if in range and row/column are set
 int map_pc2rc(double x, double y, int *row, int *column){
     // Find x -> row mapping
-    *row = (int)round(floor(((((IMAGE_HEIGHT*BIN)/2.0) - x)/(IMAGE_HEIGHT*BIN)) * IMAGE_HEIGHT));	// obviously can be simplified, but leaving for debug
-
+    *row = (int)round(floor(((((IMAGE_HEIGHT*BIN)/2.0) - x)/(IMAGE_HEIGHT*BIN)) * IMAGE_HEIGHT));	
+    // obviously can be simplified, but leaving for debug
     // Find y -> column mapping
     *column = (int)round(floor(((((IMAGE_WIDTH*BIN)/2.0) - y)/(IMAGE_WIDTH*BIN)) * IMAGE_WIDTH));
-
     // Return success
     return 1;
   }
@@ -72,16 +74,14 @@ int map_rc2pc(double *x, double *y, int row, int column){
   if(row >= 0 && row < IMAGE_HEIGHT && column >= 0 && column < IMAGE_WIDTH){
     // Find row -> x mapping
     *x = (double)(BIN*-1.0 * (row - (IMAGE_HEIGHT/2.0)));	// this one is simplified
-
     // column -> y mapping
     *y = (double)(BIN*-1.0 * (column - (IMAGE_WIDTH/2.0)));
-
     // Return success
     return 1;
-    }
-
-  return 0;
   }
+  return 0;
+}
+
 
 // main generation function
 void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
@@ -93,8 +93,8 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   for(int i = 0; i < IMAGE_HEIGHT; ++i){
     for(int j = 0; j < IMAGE_WIDTH; ++j){
       heightArray[i][j] = (double)(-FLT_MAX);
-      }
     }
+  }
 
   // Convert from ROS message to PCL point cloud
   pcl::fromROSMsg(*pointCloudMsg, *cloud);
@@ -106,13 +106,13 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     if(map_pc2rc(cloud->points[j].x, cloud->points[j].y, &row, &column) == 1 && row >= 0 && row < IMAGE_HEIGHT && column >=0 && column < IMAGE_WIDTH){
       if(cloud->points[j].z > heightArray[row][column]){
         heightArray[row][column] = cloud->points[j].z;
-        }
+      }
       // Keep track of lowest point in cloud for flood fill
       else if(cloud->points[j].z < lowest){
         lowest = cloud->points[j].z;
-        }
       }
     }
+  }
 
   // Create "point cloud" and opencv image to be published for visualization
   int index = 0;
@@ -127,7 +127,6 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       cloud_grid->points[index].z = heightArray[i][j];
       ++index;
       */
-
       // Add point to image
       cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
       if(heightArray[i][j] > -FLT_MAX){
@@ -143,10 +142,10 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       }
     }
 
-  // Draw a pretty little circle
+  // Draw a pretty little circle around the lidar
   int c_x, c_y;
   map_pc2rc(0.0, 0.0, &c_y, &c_x); 
-  cv::circle(*heightmap, Point(c_x,c_y), 10, Scalar(255,255,255), 1);
+  cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,255), 1);
 
   // Display image
   cv::imshow("Height Map", *heightmap);
@@ -167,6 +166,14 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   pubPointCloud.publish(output);
   */
 
+}
+
+// main generation function
+void ObjRTKRecd(const nav_msgs::Odometry::ConstPtr& objRTKmsg) {
+  ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", 
+    objRTKmsg->pose.pose.position.x,
+    objRTKmsg->pose.pose.position.y, 
+    objRTKmsg->pose.pose.position.z);
 }
 
 int main(int argc, char** argv)
@@ -215,6 +222,7 @@ int main(int argc, char** argv)
 
   subPointCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 2, DEM);
   //pubPointCloud = nh.advertise<sensor_msgs::PointCloud2> ("/heightmap/pointcloud", 1);
+  subObjRTK = nh.subscribe<nav_msgs::Odometry>("/objects/obs1/rear/gps/rtkfix", 2, ObjRTKRecd);
 
   ros::spin();
 
