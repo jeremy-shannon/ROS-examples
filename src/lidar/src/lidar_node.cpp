@@ -36,11 +36,15 @@ using namespace cv;
 ros::Subscriber subPointCloud;
 //ros::Publisher pubPointCloud;
 ros::Subscriber subObjRTK;
+ros::Subscriber subCapFRTK;
+ros::Subscriber subCapRRTK;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 //pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_grid (new pcl::PointCloud<pcl::PointXYZ>);
 //sensor_msgs::PointCloud2 output;
 nav_msgs::Odometry objRTK;
+nav_msgs::Odometry capFRTK;
+nav_msgs::Odometry capRRTK;
 
 double heightArray[IMAGE_HEIGHT][IMAGE_WIDTH];
 
@@ -49,6 +53,9 @@ std::vector<int> compression_params;
 
 int fnameCounter;
 double lowest;
+
+// odometry
+double obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y;
 
 // map meters to 0->255
 int map_m2i(double val){
@@ -87,6 +94,8 @@ int map_rc2pc(double *x, double *y, int row, int column){
 void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 {
   ROS_DEBUG("Point Cloud Received");
+  ROS_INFO("Position-> o_x: [%f], o_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
+    obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y);
 
   // clear cloud and height map array
   lowest = FLT_MAX;
@@ -168,12 +177,24 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 
 }
 
-// main generation function
+// received RTK message from object vehicle
 void ObjRTKRecd(const nav_msgs::Odometry::ConstPtr& objRTKmsg) {
-  ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", 
-    objRTKmsg->pose.pose.position.x,
-    objRTKmsg->pose.pose.position.y, 
-    objRTKmsg->pose.pose.position.z);
+  obj_x = objRTKmsg->pose.pose.position.x;
+  obj_y = objRTKmsg->pose.pose.position.y;
+  // ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", 
+  //   objRTKmsg->pose.pose.position.x,
+  //   objRTKmsg->pose.pose.position.y, 
+  //   objRTKmsg->pose.pose.position.z);
+}
+// received RTK message from front of capture vehicle
+void CapFRTKRecd(const nav_msgs::Odometry::ConstPtr& capFRTKmsg) {
+  cap_f_x = capFRTKmsg->pose.pose.position.x;
+  cap_f_y = capFRTKmsg->pose.pose.position.y;
+}
+// received RTK message from rear of capture vehicle
+void CapRRTKRecd(const nav_msgs::Odometry::ConstPtr& capRRTKmsg) {
+  cap_r_x = capRRTKmsg->pose.pose.position.x;
+  cap_r_y = capRRTKmsg->pose.pose.position.y;
 }
 
 int main(int argc, char** argv)
@@ -223,6 +244,8 @@ int main(int argc, char** argv)
   subPointCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 2, DEM);
   //pubPointCloud = nh.advertise<sensor_msgs::PointCloud2> ("/heightmap/pointcloud", 1);
   subObjRTK = nh.subscribe<nav_msgs::Odometry>("/objects/obs1/rear/gps/rtkfix", 2, ObjRTKRecd);
+  subCapFRTK = nh.subscribe<nav_msgs::Odometry>("/objects/capture_vehicle/front/gps/rtkfix", 2, CapFRTKRecd);
+  subCapRRTK = nh.subscribe<nav_msgs::Odometry>("/objects/capture_vehicle/rear/gps/rtkfix", 2, CapRRTKRecd);
 
   ros::spin();
 
