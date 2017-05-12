@@ -156,6 +156,19 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   map_pc2rc(0.0, 0.0, &c_y, &c_x); 
   cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,255), 1);
 
+  // Calculate location of object car in relation to capture car
+  double theta = atan2((cap_f_y-cap_r_y),(cap_f_x-cap_r_x));
+  double d_y = obj_y - cap_f_y;
+  double d_x = obj_x - cap_f_x;
+  double o_y = d_x*sin(-theta) + d_y*cos(-theta);
+  double o_x = d_x*cos(-theta) - d_y*sin(-theta);
+
+  // Draw a pretty little circle on the object car
+  int o_x_pc, o_y_pc;
+  map_pc2rc(o_x, o_y, &o_y_pc, &o_x_pc);
+  cv::circle(*heightmap, Point(o_x_pc,o_y_pc), 4, Scalar(255,255,255), 1);
+
+
   // Display image
   cv::imshow("Height Map", *heightmap);
 
