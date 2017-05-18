@@ -15,6 +15,14 @@
 #include <pcl/filters/extract_indices.h>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/kdtree/kdtree.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/segmentation/extract_clusters.h>
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv/cv.h>
@@ -29,6 +37,10 @@
 #define IMAGE_HEIGHT	701
 #define IMAGE_WIDTH	801
 #define BIN		0.1
+
+// choices for min/max point height (z) to consider
+#define MIN_Z -3.0    // previous -1.9
+#define MAX_Z  5.0    // previous 0.7
 
 using namespace cv;
 
@@ -59,7 +71,7 @@ double obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y;
 
 // map meters to 0->255
 int map_m2i(double val){
-  return (int)round((val + 3.0)/6.0 * 255);
+  return (int)round((val - MIN_Z + 10.0)/(MAX_Z - MIN_Z + 10.0) * 255);
   }
 
 // map meters to index
@@ -94,8 +106,8 @@ int map_rc2pc(double *x, double *y, int row, int column){
 void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 {
   ROS_DEBUG("Point Cloud Received");
-  ROS_INFO("Position-> o_x: [%f], o_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
-    obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y);
+  // ROS_INFO("Position-> o_x: [%f], o_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
+  //   obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y);
 
   // clear cloud and height map array
   lowest = FLT_MAX;
@@ -108,18 +120,105 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   // Convert from ROS message to PCL point cloud
   pcl::fromROSMsg(*pointCloudMsg, *cloud);
 
+  // Create the filtering object: downsample the dataset using a leaf size of 1cm
+  pcl::VoxelGrid<pcl::PointXYZ> vg;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
+  vg.setInputCloud (cloud);
+  vg.setLeafSize (0.08f, 0.08f, 0.08f);
+  vg.filter (*cloud_filtered);
+  //ROS_INFO_STREAM("PointCloud after filtering has: " << cloud_filtered->points.size ()  << " data points.");
+
+  // Create the segmentation object for the planar model and set all the parameters
+  pcl::SACSegmentation<pcl::PointXYZ> seg;
+  pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane (new pcl::PointCloud<pcl::PointXYZ> ());
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_f (new pcl::PointCloud<pcl::PointXYZ>);
+
+  pcl::PCDWriter writer;
+  seg.setOptimizeCoefficients (true);
+  seg.setModelType (pcl::SACMODEL_PLANE);
+  seg.setMethodType (pcl::SAC_RANSAC);
+  seg.setMaxIterations (100);
+  seg.setDistanceThreshold (0.5);
+
+  int i=0, nr_points = (int) cloud_filtered->points.size ();
+  while (cloud_filtered->points.size () > 0.3 * nr_points)
+  {
+    // Segment the largest planar component from the remaining cloud
+    seg.setInputCloud (cloud_filtered);
+    seg.segment (*inliers, *coefficients);
+    if (inliers->indices.size () == 0)
+    {
+      ROS_INFO_STREAM("Could not estimate a planar model for the given dataset.");
+      break;
+    }
+
+    // Extract the planar inliers from the input cloud
+    pcl::ExtractIndices<pcl::PointXYZ> extract;
+    extract.setInputCloud (cloud_filtered);
+    extract.setIndices (inliers);
+    extract.setNegative (false);
+
+    // Get the points associated with the planar surface
+    extract.filter (*cloud_plane);
+    //ROS_INFO_STREAM("PointCloud representing the planar component: " << cloud_plane->points.size () << " data points.");
+
+    // Remove the planar inliers, extract the rest
+    extract.setNegative (true);
+    extract.filter (*cloud_f);
+    *cloud_filtered = *cloud_f;
+  }
+/*
+  // Creating the KdTree object for the search method of the extraction
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+  tree->setInputCloud (cloud_filtered);
+
+  std::vector<pcl::PointIndices> cluster_indices;
+  pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+  ec.setClusterTolerance (0.02); // 2cm
+  ec.setMinClusterSize (100);
+  ec.setMaxClusterSize (25000);
+  ec.setSearchMethod (tree);
+  ec.setInputCloud (cloud_filtered);
+  ec.extract (cluster_indices);
+
+  int j = 0;
+  for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
+  {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
+    for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit)
+      cloud_cluster->points.push_back (cloud_filtered->points[*pit]); //*
+    cloud_cluster->width = cloud_cluster->points.size ();
+    cloud_cluster->height = 1;
+    cloud_cluster->is_dense = true;
+
+    std::cout << "PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points." << std::endl;
+    std::stringstream ss;
+    ss << "cloud_cluster_" << j << ".pcd";
+    writer.write<pcl::PointXYZ> (ss.str (), *cloud_cluster, false); //*
+    j++;
+  }
+*/
   // Populate the DEM grid by looping through every point
   int row, column;
-  for(size_t j = 0; j < cloud->points.size(); ++j){
+  for(size_t j = 0; j < cloud_filtered->points.size(); ++j){
     // If the point is within the image size bounds
-    if(map_pc2rc(cloud->points[j].x, cloud->points[j].y, &row, &column) == 1 && row >= 0 && row < IMAGE_HEIGHT && column >=0 && column < IMAGE_WIDTH){
-      if(cloud->points[j].z > heightArray[row][column]){
-        heightArray[row][column] = cloud->points[j].z;
+    if(map_pc2rc(cloud_filtered->points[j].x, cloud_filtered->points[j].y, &row, &column) == 1 &&
+                 row >= 0 && 
+                 row < IMAGE_HEIGHT && 
+                 column >=0 && 
+                 column < IMAGE_WIDTH) {
+      // this will filter out points that are above or beyond a certain threshold z height
+      if(cloud_filtered->points[j].z > heightArray[row][column] && 
+         cloud_filtered->points[j].z < MAX_Z &&
+         cloud_filtered->points[j].z > MIN_Z){
+        heightArray[row][column] = cloud_filtered->points[j].z;
       }
       // Keep track of lowest point in cloud for flood fill
-      else if(cloud->points[j].z < lowest){
+      /*else if(cloud->points[j].z < lowest){
         lowest = cloud->points[j].z;
-      }
+      }*/
     }
   }
 
@@ -140,7 +239,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
       if(heightArray[i][j] > -FLT_MAX){
         pixel[0] = 0;
-        pixel[1] = 0;
+        pixel[1] = map_m2i(heightArray[i][j]);
         pixel[2] = map_m2i(heightArray[i][j]);
         }
       else{
