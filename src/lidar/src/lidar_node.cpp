@@ -72,19 +72,19 @@ double obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y;
 // map meters to 0->255
 int map_m2i(double val){
   return (int)round((val - MIN_Z + 10.0)/(MAX_Z - MIN_Z + 10.0) * 255);
-  }
+}
 
 // map meters to index
 // returns 0 if not in range, 1 if in range and row/column are set
 int map_pc2rc(double x, double y, int *row, int *column){
-    // Find x -> row mapping
-    *row = (int)round(floor(((((IMAGE_HEIGHT*BIN)/2.0) - x)/(IMAGE_HEIGHT*BIN)) * IMAGE_HEIGHT));	
-    // obviously can be simplified, but leaving for debug
-    // Find y -> column mapping
-    *column = (int)round(floor(((((IMAGE_WIDTH*BIN)/2.0) - y)/(IMAGE_WIDTH*BIN)) * IMAGE_WIDTH));
-    // Return success
-    return 1;
-  }
+  // Find x -> row mapping
+  *row = (int)round(floor(((((IMAGE_HEIGHT*BIN)/2.0) - x)/(IMAGE_HEIGHT*BIN)) * IMAGE_HEIGHT));	
+  // obviously can be simplified, but leaving for debug
+  // Find y -> column mapping
+  *column = (int)round(floor(((((IMAGE_WIDTH*BIN)/2.0) - y)/(IMAGE_WIDTH*BIN)) * IMAGE_WIDTH));
+  // Return success
+  return 1;
+}
 
 // map index to meters
 // returns 0 if not in range, 1 if in range and x/y are set
@@ -109,14 +109,6 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   // ROS_INFO("Position-> o_x: [%f], o_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
   //   obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y);
 
-  // clear cloud and height map array
-  lowest = FLT_MAX;
-  for(int i = 0; i < IMAGE_HEIGHT; ++i){
-    for(int j = 0; j < IMAGE_WIDTH; ++j){
-      heightArray[i][j] = (double)(-FLT_MAX);
-    }
-  }
-
   // Convert from ROS message to PCL point cloud
   pcl::fromROSMsg(*pointCloudMsg, *cloud);
 
@@ -124,7 +116,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   pcl::VoxelGrid<pcl::PointXYZ> vg;
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
   vg.setInputCloud (cloud);
-  vg.setLeafSize (0.08f, 0.08f, 0.08f);
+  vg.setLeafSize (0.12f, 0.12f, 0.12f);
   vg.filter (*cloud_filtered);
   //ROS_INFO_STREAM("PointCloud after filtering has: " << cloud_filtered->points.size ()  << " data points.");
 
@@ -142,7 +134,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   seg.setMaxIterations (100);
   seg.setDistanceThreshold (0.5);
 
-  int i=0, nr_points = (int) cloud_filtered->points.size ();
+  int nr_points = (int) cloud_filtered->points.size ();
   while (cloud_filtered->points.size () > 0.3 * nr_points)
   {
     // Segment the largest planar component from the remaining cloud
@@ -169,37 +161,79 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     extract.filter (*cloud_f);
     *cloud_filtered = *cloud_f;
   }
-/*
+
   // Creating the KdTree object for the search method of the extraction
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
   tree->setInputCloud (cloud_filtered);
 
   std::vector<pcl::PointIndices> cluster_indices;
   pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-  ec.setClusterTolerance (0.02); // 2cm
-  ec.setMinClusterSize (100);
-  ec.setMaxClusterSize (25000);
+  ec.setClusterTolerance (1.2); // meters
+  ec.setMinClusterSize (50);
+  ec.setMaxClusterSize (2500);
   ec.setSearchMethod (tree);
   ec.setInputCloud (cloud_filtered);
   ec.extract (cluster_indices);
 
-  int j = 0;
+  ROS_INFO_STREAM(cluster_indices.size() << " clusters extracted");
+
+  // clear height map array
+  lowest = FLT_MAX;
+  for(int i = 0; i < IMAGE_HEIGHT; ++i) {
+    for(int j = 0; j < IMAGE_WIDTH; ++j) {
+      heightArray[i][j] = (double)(-FLT_MAX);
+    }
+  }
+
+  int cluster_index = 0;
+  // iterate through clusters
   for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
   {
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
-    for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit)
-      cloud_cluster->points.push_back (cloud_filtered->points[*pit]); //*
-    cloud_cluster->width = cloud_cluster->points.size ();
-    cloud_cluster->height = 1;
-    cloud_cluster->is_dense = true;
+    int row, column;
 
-    std::cout << "PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points." << std::endl;
-    std::stringstream ss;
-    ss << "cloud_cluster_" << j << ".pcd";
-    writer.write<pcl::PointXYZ> (ss.str (), *cloud_cluster, false); //*
-    j++;
+    ROS_INFO_STREAM("cluster size: " << it->indices.size() );
+
+    // iterate through points in the cluster
+    for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit) {
+      // If the point is within the image size bounds
+      if(map_pc2rc(cloud_filtered->points[*pit].x, cloud_filtered->points[*pit].y, &row, &column) == 1 &&
+                  row >= 0 && 
+                  row < IMAGE_HEIGHT && 
+                  column >=0 && 
+                  column < IMAGE_WIDTH) {
+        // this will filter out points that are above or beyond a certain threshold z height
+        if(cloud_filtered->points[*pit].z > heightArray[row][column] && 
+           cloud_filtered->points[*pit].z < MAX_Z &&
+           cloud_filtered->points[*pit].z > MIN_Z) {
+          // add the height of the point to the height array
+          heightArray[row][column] = cloud_filtered->points[*pit].z;
+        }
+      }
+    }
+
+    // Create opencv image to be published for visualization
+    double x, y;
+    for(int i = 0; i < IMAGE_HEIGHT; ++i) {
+      for(int j = 0; j < IMAGE_WIDTH; ++j) {
+        // Add point to image
+        cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
+        if(heightArray[i][j] > -FLT_MAX) {
+          // modulo stuff here is to get different colors for different clusters
+          pixel[0] = map_m2i(heightArray[i][j]) * cluster_index%2;
+          pixel[1] = map_m2i(heightArray[i][j]);
+          pixel[2] = map_m2i(heightArray[i][j]) * 0.5 * (cluster_index%3);
+        }
+        else {
+          pixel[0] = 0;
+          pixel[1] = 0;
+          pixel[2] = 0;//map_m2i(lowest);
+        }
+      }
+    }
+    cluster_index++;
   }
-*/
+
+/*
   // Populate the DEM grid by looping through every point
   int row, column;
   for(size_t j = 0; j < cloud_filtered->points.size(); ++j){
@@ -215,26 +249,25 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
          cloud_filtered->points[j].z > MIN_Z){
         heightArray[row][column] = cloud_filtered->points[j].z;
       }
-      // Keep track of lowest point in cloud for flood fill
-      /*else if(cloud->points[j].z < lowest){
-        lowest = cloud->points[j].z;
-      }*/
+      // // Keep track of lowest point in cloud for flood fill
+      // else if(cloud->points[j].z < lowest){
+      //   lowest = cloud->points[j].z;
+      // }
     }
   }
 
+
   // Create "point cloud" and opencv image to be published for visualization
-  int index = 0;
+  //int index = 0;
   double x, y;
   for(int i = 0; i < IMAGE_HEIGHT; ++i){
     for(int j = 0; j < IMAGE_WIDTH; ++j){
       // Add point to cloud
-      /*
-      (void)map_rc2pc(&x, &y, i, j);
-      cloud_grid->points[index].x = x;
-      cloud_grid->points[index].y = y;
-      cloud_grid->points[index].z = heightArray[i][j];
-      ++index;
-      */
+      // (void)map_rc2pc(&x, &y, i, j);
+      // cloud_grid->points[index].x = x;
+      // cloud_grid->points[index].y = y;
+      // cloud_grid->points[index].z = heightArray[i][j];
+      // ++index;
       // Add point to image
       cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
       if(heightArray[i][j] > -FLT_MAX){
@@ -249,7 +282,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
         }
       }
     }
-
+*/
   // Draw a pretty little circle around the lidar
   int c_x, c_y;
   map_pc2rc(0.0, 0.0, &c_y, &c_x); 
@@ -263,9 +296,16 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   double o_x = d_x*cos(-theta) - d_y*sin(-theta);
 
   // Draw a pretty little circle on the object car
-  int o_x_pc, o_y_pc;
-  map_pc2rc(o_x, o_y, &o_y_pc, &o_x_pc);
-  cv::circle(*heightmap, Point(o_x_pc,o_y_pc), 4, Scalar(255,255,255), 1);
+  int o_x_rc, o_y_rc;
+  if (map_pc2rc(o_x, o_y, &o_y_rc, &o_x_rc) == 1 &&
+                 o_y_rc >= 0 && 
+                 o_y_rc < IMAGE_HEIGHT && 
+                 o_x_rc >=0 && 
+                 o_x_rc < IMAGE_WIDTH) {
+    cv::circle(*heightmap, Point(o_x_rc,o_y_rc), 4, Scalar(255,255,255), 1);
+  }
+
+  //ROS_INFO_STREAM("gps: " << o_x << "," << o_y << "   pix: " << o_x_rc << "," << o_y_rc);
 
 
   // Display image
