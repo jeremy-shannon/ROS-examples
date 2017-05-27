@@ -11,6 +11,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/common/common.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/conditional_removal.h>
@@ -37,7 +38,7 @@
 
 #define IMAGE_HEIGHT	701
 #define IMAGE_WIDTH	801
-#define BIN		0.1
+#define BIN		0.125
 
 // choices for min/max point height (z) to consider
 #define MIN_Z -2.0    // previous -1.9
@@ -118,7 +119,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   pcl::VoxelGrid<pcl::PointXYZ> vg;
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
   vg.setInputCloud (cloud);
-  vg.setLeafSize (0.12f, 0.12f, 0.12f);
+  vg.setLeafSize (0.1f, 0.1f, 0.1f);
   vg.filter (*cloud_filtered);
   //ROS_INFO_STREAM("PointCloud after filtering has: " << cloud_filtered->points.size ()  << " data points.");
 
@@ -190,8 +191,8 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 
   std::vector<pcl::PointIndices> cluster_indices;
   pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-  ec.setClusterTolerance (1.2); // meters
-  ec.setMinClusterSize (50);
+  ec.setClusterTolerance (1.75); // meters
+  ec.setMinClusterSize (10);
   ec.setMaxClusterSize (2500);
   ec.setSearchMethod (tree);
   ec.setInputCloud (cloud_limited);
@@ -223,8 +224,18 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
   {
     int row, column;
+    Eigen::Vector4f centroid;
 
     ROS_INFO_STREAM("cluster size: " << it->indices.size() );
+
+    // compute centroid of cluster
+    pcl::compute3DCentroid(*cloud_limited, it->indices, centroid);
+    ROS_INFO_STREAM("centroid: " << centroid[0] << "," << centroid[1] << "," << centroid[2]);
+    
+    // Draw a pretty little circle around the cluster centroid
+    int c_x, c_y;
+    map_pc2rc(centroid[0], centroid[1], &c_y, &c_x); 
+    cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,255), 1);
 
     // iterate through points in the cluster
     for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit) {
@@ -250,9 +261,10 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
         cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
         if(heightArray[i][j] > -FLT_MAX) {
           // modulo stuff here is to get different colors for different clusters
-          pixel[0] = map_m2i(heightArray[i][j]) * cluster_index%2;
-          pixel[1] = map_m2i(heightArray[i][j]);
-          pixel[2] = map_m2i(heightArray[i][j]) * 0.5 * (cluster_index%3);
+          //pixel[0] = map_m2i(heightArray[i][j]) * cluster_index%2;
+          //pixel[1] = map_m2i(heightArray[i][j]);
+          //pixel[2] = map_m2i(heightArray[i][j]) * 0.5 * (cluster_index%3);
+          pixel[cluster_index%3] = map_m2i(heightArray[i][j]);
         }
         // clear heightArray at this location, to prepare for next cluster
         heightArray[i][j] = -FLT_MAX;
@@ -314,7 +326,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   // Draw a pretty little circle around the lidar
   int c_x, c_y;
   map_pc2rc(0.0, 0.0, &c_y, &c_x); 
-  cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,255), 1);
+  cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,0), 1);
 
   // Calculate location of object car in relation to capture car
   double theta = atan2((cap_f_y-cap_r_y),(cap_f_x-cap_r_x));
@@ -330,7 +342,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
                  o_y_rc < IMAGE_HEIGHT && 
                  o_x_rc >=0 && 
                  o_x_rc < IMAGE_WIDTH) {
-    cv::circle(*heightmap, Point(o_x_rc,o_y_rc), 4, Scalar(255,255,255), 1);
+    cv::circle(*heightmap, Point(o_x_rc,o_y_rc), 4, Scalar(255,0,255), 1);
   }
 
   //ROS_INFO_STREAM("gps: " << o_x << "," << o_y << "   pix: " << o_x_rc << "," << o_y_rc);
