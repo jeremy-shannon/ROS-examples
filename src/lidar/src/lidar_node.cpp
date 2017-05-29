@@ -38,11 +38,11 @@
 
 #define IMAGE_HEIGHT	701
 #define IMAGE_WIDTH	801
-#define BIN		0.125
+#define BIN		0.100
 
 // choices for min/max point height (z) to consider
 #define MIN_Z -2.0    // previous -1.9
-#define MAX_Z  1.0    // previous 0.7
+#define MAX_Z  0.5    // previous 0.7
 
 using namespace cv;
 
@@ -69,7 +69,7 @@ int fnameCounter;
 double lowest;
 
 // odometry
-double obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y;
+double obj_gps_x, obj_gps_y, cap_gps_front_x, cap_gps_front_y, cap_gps_rear_x, cap_gps_rear_y;
 
 // map meters to 0->255
 int map_m2i(double val){
@@ -108,8 +108,8 @@ int map_rc2pc(double *x, double *y, int row, int column){
 void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 {
   ROS_DEBUG("Point Cloud Received");
-  // ROS_INFO("Position-> o_x: [%f], o_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
-  //   obj_x, obj_y, cap_f_x, cap_f_y, cap_r_x, cap_r_y);
+  // ROS_INFO("Position-> obj_lidar_x: [%f], obj_lidar_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
+  //   obj_gps_x, obj_gps_y, cap_gps_front_x, cap_gps_front_y, cap_gps_rear_x, cap_gps_rear_y);
 
   // Convert from ROS message to PCL point cloud
   pcl::fromROSMsg(*pointCloudMsg, *cloud);
@@ -233,9 +233,9 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     ROS_INFO_STREAM("centroid: " << centroid[0] << "," << centroid[1] << "," << centroid[2]);
     
     // Draw a pretty little circle around the cluster centroid
-    int c_x, c_y;
-    map_pc2rc(centroid[0], centroid[1], &c_y, &c_x); 
-    cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,255), 1);
+    int lidar_origin_x, lidar_origin_y;
+    map_pc2rc(centroid[0], centroid[1], &lidar_origin_y, &lidar_origin_x); 
+    cv::circle(*heightmap, Point(lidar_origin_x,lidar_origin_y), 4, Scalar(255,255,255), 1);
 
     // iterate through points in the cluster
     for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit) {
@@ -324,28 +324,28 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     }
 */
   // Draw a pretty little circle around the lidar
-  int c_x, c_y;
-  map_pc2rc(0.0, 0.0, &c_y, &c_x); 
-  cv::circle(*heightmap, Point(c_x,c_y), 4, Scalar(255,255,0), 1);
+  int lidar_origin_x, lidar_origin_y;
+  map_pc2rc(0.0, 0.0, &lidar_origin_y, &lidar_origin_x); 
+  cv::circle(*heightmap, Point(lidar_origin_x,lidar_origin_y), 4, Scalar(255,255,0), 1);
 
   // Calculate location of object car in relation to capture car
-  double theta = atan2((cap_f_y-cap_r_y),(cap_f_x-cap_r_x));
-  double d_y = obj_y - cap_f_y;
-  double d_x = obj_x - cap_f_x;
-  double o_y = d_x*sin(-theta) + d_y*cos(-theta);
-  double o_x = d_x*cos(-theta) - d_y*sin(-theta);
+  double theta = atan2((cap_gps_front_y-cap_gps_rear_y),(cap_gps_front_x-cap_gps_rear_x));
+  double d_y = obj_gps_y - cap_gps_front_y;
+  double d_x = obj_gps_x - cap_gps_front_x;
+  double obj_lidar_y = d_x*sin(-theta) + d_y*cos(-theta);
+  double obj_lidar_x = d_x*cos(-theta) - d_y*sin(-theta);
 
   // Draw a pretty little circle on the object car
-  int o_x_rc, o_y_rc;
-  if (map_pc2rc(o_x, o_y, &o_y_rc, &o_x_rc) == 1 &&
-                 o_y_rc >= 0 && 
-                 o_y_rc < IMAGE_HEIGHT && 
-                 o_x_rc >=0 && 
-                 o_x_rc < IMAGE_WIDTH) {
-    cv::circle(*heightmap, Point(o_x_rc,o_y_rc), 4, Scalar(255,0,255), 1);
+  int obj_lidar_x_rc, obj_lidar_y_rc;
+  if (map_pc2rc(obj_lidar_x, obj_lidar_y, &obj_lidar_y_rc, &obj_lidar_x_rc) == 1 &&
+                 obj_lidar_y_rc >= 0 && 
+                 obj_lidar_y_rc < IMAGE_HEIGHT && 
+                 obj_lidar_x_rc >=0 && 
+                 obj_lidar_x_rc < IMAGE_WIDTH) {
+    cv::circle(*heightmap, Point(obj_lidar_x_rc,obj_lidar_y_rc), 4, Scalar(255,0,255), 1);
   }
 
-  //ROS_INFO_STREAM("gps: " << o_x << "," << o_y << "   pix: " << o_x_rc << "," << o_y_rc);
+  //ROS_INFO_STREAM("gps: " << obj_lidar_x << "," << obj_lidar_y << "   pix: " << obj_lidar_x_rc << "," << obj_lidar_y_rc);
 
 
   // Display image
@@ -371,8 +371,8 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
 
 // received RTK message from object vehicle
 void ObjRTKRecd(const nav_msgs::Odometry::ConstPtr& objRTKmsg) {
-  obj_x = objRTKmsg->pose.pose.position.x;
-  obj_y = objRTKmsg->pose.pose.position.y;
+  obj_gps_x = objRTKmsg->pose.pose.position.x;
+  obj_gps_y = objRTKmsg->pose.pose.position.y;
   // ROS_INFO("Position-> x: [%f], y: [%f], z: [%f]", 
   //   objRTKmsg->pose.pose.position.x,
   //   objRTKmsg->pose.pose.position.y, 
@@ -380,13 +380,13 @@ void ObjRTKRecd(const nav_msgs::Odometry::ConstPtr& objRTKmsg) {
 }
 // received RTK message from front of capture vehicle
 void CapFRTKRecd(const nav_msgs::Odometry::ConstPtr& capFRTKmsg) {
-  cap_f_x = capFRTKmsg->pose.pose.position.x;
-  cap_f_y = capFRTKmsg->pose.pose.position.y;
+  cap_gps_front_x = capFRTKmsg->pose.pose.position.x;
+  cap_gps_front_y = capFRTKmsg->pose.pose.position.y;
 }
 // received RTK message from rear of capture vehicle
 void CapRRTKRecd(const nav_msgs::Odometry::ConstPtr& capRRTKmsg) {
-  cap_r_x = capRRTKmsg->pose.pose.position.x;
-  cap_r_y = capRRTKmsg->pose.pose.position.y;
+  cap_gps_rear_x = capRRTKmsg->pose.pose.position.x;
+  cap_gps_rear_y = capRRTKmsg->pose.pose.position.y;
 }
 
 int main(int argc, char** argv)
