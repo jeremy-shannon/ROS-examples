@@ -175,16 +175,36 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   ///////////////////////////////// LIMIT ////////////////////////////////////////////
   // remove points from the cloud below MIN_Z and above MAX_Z
   ROS_INFO_STREAM("Points before limit: " << cloud_filtered->points.size ());
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_limited (new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::ConditionAnd<pcl::PointXYZ>::Ptr range_cond (new
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_limited1 (new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::ConditionAnd<pcl::PointXYZ>::Ptr range_cond1 (new
     pcl::ConditionAnd<pcl::PointXYZ> ());
-  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+  range_cond1->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
     pcl::FieldComparison<pcl::PointXYZ> ("z", pcl::ComparisonOps::GT, MIN_Z)));
-  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+  range_cond1->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
     pcl::FieldComparison<pcl::PointXYZ> ("z", pcl::ComparisonOps::LT, MAX_Z)));
   // build the filter
+  pcl::ConditionalRemoval<pcl::PointXYZ> condrem1 (range_cond1);
+  condrem1.setInputCloud (cloud_filtered);
+  //condrem.setKeepOrganized(true);
+  // apply filter
+  condrem1.filter (*cloud_limited1);
+  ROS_INFO_STREAM("Points after limit 1: " << cloud_limited1->points.size ());
+
+  // remove points corresponding to the capture vehicle
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_limited (new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::ConditionOr<pcl::PointXYZ>::Ptr range_cond (new
+    pcl::ConditionOr<pcl::PointXYZ> ());
+  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+    pcl::FieldComparison<pcl::PointXYZ> ("x", pcl::ComparisonOps::GT, CAPTURE_CAR_FRONT_X)));
+  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+    pcl::FieldComparison<pcl::PointXYZ> ("x", pcl::ComparisonOps::LT, CAPTURE_CAR_REAR_X)));
+  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+    pcl::FieldComparison<pcl::PointXYZ> ("y", pcl::ComparisonOps::GT, CAPTURE_CAR_LEFT_Y)));
+  range_cond->addComparison (pcl::FieldComparison<pcl::PointXYZ>::ConstPtr (new
+    pcl::FieldComparison<pcl::PointXYZ> ("y", pcl::ComparisonOps::LT, CAPTURE_CAR_RIGHT_Y)));
+  // build the filter
   pcl::ConditionalRemoval<pcl::PointXYZ> condrem (range_cond);
-  condrem.setInputCloud (cloud_filtered);
+  condrem.setInputCloud (cloud_limited1);
   //condrem.setKeepOrganized(true);
   // apply filter
   condrem.filter (*cloud_limited);
@@ -232,11 +252,11 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     int row, column;
     Eigen::Vector4f centroid;
 
-    ROS_INFO_STREAM("cluster size: " << it->indices.size() );
+    //ROS_INFO_STREAM("cluster size: " << it->indices.size() );
 
     // compute centroid of cluster
     pcl::compute3DCentroid(*cloud_limited, it->indices, centroid);
-    ROS_INFO_STREAM("centroid: " << centroid[0] << "," << centroid[1] << "," << centroid[2]);
+    //ROS_INFO_STREAM("centroid: " << centroid[0] << "," << centroid[1] << "," << centroid[2]);
     
     // Draw a pretty little circle around the cluster centroid
     int lidar_origin_x, lidar_origin_y;
