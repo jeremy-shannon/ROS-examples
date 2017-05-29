@@ -44,6 +44,12 @@
 #define MIN_Z -2.0    // previous -1.9
 #define MAX_Z  0.5    // previous 0.7
 
+// capture car dimensions (for removing it from point cloud)
+#define CAPTURE_CAR_FRONT_X 2.0
+#define CAPTURE_CAR_REAR_X -1.5
+#define CAPTURE_CAR_LEFT_Y 1.0
+#define CAPTURE_CAR_RIGHT_Y -1.0
+
 using namespace cv;
 
 // Global Publishers/Subscribers
@@ -328,12 +334,18 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   map_pc2rc(0.0, 0.0, &lidar_origin_y, &lidar_origin_x); 
   cv::circle(*heightmap, Point(lidar_origin_x,lidar_origin_y), 4, Scalar(255,255,0), 1);
 
+  // Draw a pretty box around the capture car position
+  int cap_front_rc, cap_rear_rc, cap_left_rc, cap_right_rc;
+  map_pc2rc(CAPTURE_CAR_FRONT_X, CAPTURE_CAR_LEFT_Y, &cap_front_rc, &cap_left_rc);
+  map_pc2rc(CAPTURE_CAR_REAR_X, CAPTURE_CAR_RIGHT_Y, &cap_rear_rc, &cap_right_rc);
+  cv::rectangle(*heightmap, Point(cap_left_rc, cap_front_rc), Point(cap_right_rc, cap_rear_rc), Scalar(255,255,0), 1);
+
   // Calculate location of object car in relation to capture car
   double theta = atan2((cap_gps_front_y-cap_gps_rear_y),(cap_gps_front_x-cap_gps_rear_x));
   double d_y = obj_gps_y - cap_gps_front_y;
   double d_x = obj_gps_x - cap_gps_front_x;
   double obj_lidar_y = d_x*sin(-theta) + d_y*cos(-theta);
-  double obj_lidar_x = d_x*cos(-theta) - d_y*sin(-theta);
+  double obj_lidar_x = d_x*cos(-theta) - d_y*sin(-theta) -1.0; // lidar/gps difference
 
   // Draw a pretty little circle on the object car
   int obj_lidar_x_rc, obj_lidar_y_rc;
