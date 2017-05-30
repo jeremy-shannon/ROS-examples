@@ -117,6 +117,13 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   // ROS_INFO("Position-> obj_lidar_x: [%f], obj_lidar_y: [%f], cf_x: [%f], cf_y: [%f], cr_x: [%f], cr_y: [%f],",
   //   obj_gps_x, obj_gps_y, cap_gps_front_x, cap_gps_front_y, cap_gps_rear_x, cap_gps_rear_y);
 
+  // Calculate location of object car in relation to capture car
+  double theta = atan2((cap_gps_front_y-cap_gps_rear_y),(cap_gps_front_x-cap_gps_rear_x));
+  double d_y = obj_gps_y - cap_gps_front_y;
+  double d_x = obj_gps_x - cap_gps_front_x;
+  double obj_lidar_y = d_x*sin(-theta) + d_y*cos(-theta);
+  double obj_lidar_x = d_x*cos(-theta) - d_y*sin(-theta) -1.0; // lidar/gps difference
+
   // Convert from ROS message to PCL point cloud
   pcl::fromROSMsg(*pointCloudMsg, *cloud);
 
@@ -258,10 +265,20 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
     pcl::compute3DCentroid(*cloud_limited, it->indices, centroid);
     //ROS_INFO_STREAM("centroid: " << centroid[0] << "," << centroid[1] << "," << centroid[2]);
     
-    // Draw a pretty little circle around the cluster centroid
-    int lidar_origin_x, lidar_origin_y;
+    // Draw a pretty little circle around the cluster centroid (big and bold if ID'd as obj car)
+    int lidar_origin_x, lidar_origin_y, circle_radius, circle_thickness;
+    circle_radius = 4;
+    circle_thickness = 1;
+    double dx = centroid[0] - obj_lidar_x;
+    double dy = centroid[1] - obj_lidar_y;
+    double dist = sqrt(pow(dx,2) + pow(dy,2));
+    if (dist < 2.5) {
+      circle_radius = 6;
+      circle_thickness = 2;
+    }
     map_pc2rc(centroid[0], centroid[1], &lidar_origin_y, &lidar_origin_x); 
-    cv::circle(*heightmap, Point(lidar_origin_x,lidar_origin_y), 4, Scalar(255,255,255), 1);
+    cv::circle(*heightmap, Point(lidar_origin_x,lidar_origin_y), circle_radius, 
+               Scalar(255,255,255), circle_thickness);
 
     // iterate through points in the cluster
     for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit) {
@@ -359,13 +376,6 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   map_pc2rc(CAPTURE_CAR_FRONT_X, CAPTURE_CAR_LEFT_Y, &cap_front_rc, &cap_left_rc);
   map_pc2rc(CAPTURE_CAR_REAR_X, CAPTURE_CAR_RIGHT_Y, &cap_rear_rc, &cap_right_rc);
   cv::rectangle(*heightmap, Point(cap_left_rc, cap_front_rc), Point(cap_right_rc, cap_rear_rc), Scalar(255,255,0), 1);
-
-  // Calculate location of object car in relation to capture car
-  double theta = atan2((cap_gps_front_y-cap_gps_rear_y),(cap_gps_front_x-cap_gps_rear_x));
-  double d_y = obj_gps_y - cap_gps_front_y;
-  double d_x = obj_gps_x - cap_gps_front_x;
-  double obj_lidar_y = d_x*sin(-theta) + d_y*cos(-theta);
-  double obj_lidar_x = d_x*cos(-theta) - d_y*sin(-theta) -1.0; // lidar/gps difference
 
   // Draw a pretty little circle on the object car
   int obj_lidar_x_rc, obj_lidar_y_rc;
