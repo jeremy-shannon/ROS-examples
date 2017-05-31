@@ -79,7 +79,7 @@ double obj_gps_x, obj_gps_y, cap_gps_front_x, cap_gps_front_y, cap_gps_rear_x, c
 
 // map meters to 0->255
 int map_m2i(double val){
-  return (int)round((val - MIN_Z + 10.0)/(MAX_Z - MIN_Z + 10.0) * 255);
+  return (int)round((val - MIN_Z + 2.5)/(MAX_Z - MIN_Z + 2.5) * 255);
 }
 
 // map meters to index
@@ -297,6 +297,8 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       }
     }
 
+    int num_cluster_image_pixels = 0;
+
     // clear the cluster image
     for(int i = 0; i < 64; ++i) {
       for(int j = 0; j < 64; ++j) {
@@ -319,6 +321,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
           uchar &pixel = cluster_img->at<uchar>(i,j);
           if(heightArray[offset_i][offset_j] > -FLT_MAX) {
             pixel = map_m2i(heightArray[offset_i][offset_j]);
+            num_cluster_image_pixels++;
           }
         }
       }
@@ -337,11 +340,13 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       }
     }
 
-    // Save cluster image to disk
-    char filename[100];
-    snprintf(filename, 100, "%simage_%d-%d.png", file_path, fnameCounter, cluster_index);
-    cv::imwrite(filename, *cluster_img, compression_params);
-    
+    if (num_cluster_image_pixels > 9) {
+      // Save cluster image to disk
+      char filename[100];
+      snprintf(filename, 100, "%simage_%d-%d.png", file_path, fnameCounter, cluster_index);
+      cv::imwrite(filename, *cluster_img, compression_params);
+    }
+
     // Draw a pretty little circle around the cluster centroid (big and bold if ID'd as obj car)
     int centroid_row, centroid_col; 
     map_pc2rc(centroid[0], centroid[1], &centroid_row, &centroid_col); 
@@ -376,7 +381,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   ++fnameCounter;
 
   // Display image
-  cv::imshow("Height Map", *heightmap);
+  //cv::imshow("Height Map", *heightmap);
 
   // Output height map to point cloud for python node to parse to PNG
   /*
