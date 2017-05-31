@@ -30,11 +30,13 @@
 #include <opencv/cv.h>
 #include <opencv/highgui.h>
 #include <opencv2/highgui/highgui.hpp>
+#include <image_transport/image_transport.h>
 
 #include <ros/ros.h>
 #include <ros/console.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
+#include <lidar/img_with_pose.h>
 
 #define IMAGE_HEIGHT	701
 #define IMAGE_WIDTH	801
@@ -55,6 +57,7 @@ using namespace cv;
 // Global Publishers/Subscribers
 ros::Subscriber subPointCloud;
 //ros::Publisher pubPointCloud;
+ros::Publisher pubImgWithPose;
 ros::Subscriber subObjRTK;
 ros::Subscriber subCapFRTK;
 ros::Subscriber subCapRRTK;
@@ -62,6 +65,7 @@ ros::Subscriber subCapRRTK;
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 //pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_grid (new pcl::PointCloud<pcl::PointXYZ>);
 //sensor_msgs::PointCloud2 output;
+lidar::img_with_pose output;
 nav_msgs::Odometry objRTK;
 nav_msgs::Odometry capFRTK;
 nav_msgs::Odometry capRRTK;
@@ -69,6 +73,7 @@ nav_msgs::Odometry capRRTK;
 double heightArray[IMAGE_HEIGHT][IMAGE_WIDTH];
 
 cv::Mat *heightmap, *cluster_img;
+cv_bridge::CvImage cluster_img_bridge;
 std::vector<int> compression_params;
 
 int fnameCounter;
@@ -242,6 +247,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
   }
 
   // clear the heightmap image
+  /*
   for(int i = 0; i < IMAGE_HEIGHT; ++i) {
     for(int j = 0; j < IMAGE_WIDTH; ++j) {
       cv::Vec3b &pixel = heightmap->at<cv::Vec3b>(i,j);
@@ -250,6 +256,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       pixel[2] = 0;
     }
   }
+  */
 
   int cluster_index = 0;
   // iterate through clusters
@@ -327,6 +334,7 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
       }
     }
     // add heightArray values to heightmap image
+    /*
     for(int i = 0; i < IMAGE_HEIGHT; ++i) {
       for(int j = 0; j < IMAGE_WIDTH; ++j) {
         // Add point to image
@@ -339,12 +347,24 @@ void DEM(const sensor_msgs::PointCloud2ConstPtr& pointCloudMsg)
         heightArray[i][j] = -FLT_MAX;
       }
     }
+    */
 
     if (num_cluster_image_pixels > 9) {
       // Save cluster image to disk
+      /*
       char filename[100];
       snprintf(filename, 100, "%simage_%d-%d.png", file_path, fnameCounter, cluster_index);
       cv::imwrite(filename, *cluster_img, compression_params);
+      */
+
+      // publish image and pose to ROS message img_with_pose
+      cluster_img_bridge.image = *cluster_img;
+      cluster_img_bridge.encoding = "mono8";
+      cluster_img_bridge.toImageMsg(output.img);
+      output.pose.x = centroid[0];
+      output.pose.y = centroid[1];
+      output.header.stamp = ros::Time::now();
+      pubImgWithPose.publish(output);
     }
 
     // Draw a pretty little circle around the cluster centroid (big and bold if ID'd as obj car)
@@ -429,11 +449,15 @@ int main(int argc, char** argv)
   // Setup images
   cv::Mat map(IMAGE_HEIGHT, IMAGE_WIDTH, CV_8UC3, cv::Scalar(0, 0, 0));
   heightmap = &map;
-  cv::Mat map2(64, 64, CV_8UC1, cv::Scalar(0, 0, 0));
+  cv::Mat map2(64, 64, CV_8UC1, cv::Scalar(0));
   cluster_img = &map2;
+
+  // init heightmap image display
+  /*
   cvNamedWindow("Height Map", CV_WINDOW_AUTOSIZE);
   cvStartWindowThread();
   cv::imshow("Height Map", *heightmap);
+  */
 
   // Setup Image Output Parameters
   fnameCounter = 0;
@@ -460,7 +484,7 @@ int main(int argc, char** argv)
 */
 
   subPointCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 2, DEM);
-  //pubPointCloud = nh.advertise<sensor_msgs::PointCloud2> ("/heightmap/pointcloud", 1);
+  pubImgWithPose = nh.advertise<lidar::img_with_pose> ("/heightmap/cluster_and_pose", 1);
   subObjRTK = nh.subscribe<nav_msgs::Odometry>("/objects/obs1/rear/gps/rtkfix", 2, ObjRTKRecd);
   subCapFRTK = nh.subscribe<nav_msgs::Odometry>("/objects/capture_vehicle/front/gps/rtkfix", 2, CapFRTKRecd);
   subCapRRTK = nh.subscribe<nav_msgs::Odometry>("/objects/capture_vehicle/rear/gps/rtkfix", 2, CapRRTKRecd);
