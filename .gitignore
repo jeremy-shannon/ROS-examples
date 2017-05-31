@@ -4,6 +4,8 @@ bin/
 lib/
 msg_gen/
 srv_gen/
+install/
+devel/share/
 msg/*Action.msg
 msg/*ActionFeedback.msg
 msg/*ActionGoal.msg
@@ -48,3 +50,5 @@ qtcreator-*
 CATKIN_IGNORE
 
 .vscode/
+
+/devel/share/lidarConfig.cmake
