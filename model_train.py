@@ -3,11 +3,12 @@ from keras.layers.core import Dense, Activation, Flatten, Dropout, Lambda
 from keras.layers.convolutional import Convolution2D
 from keras.layers.pooling import MaxPooling2D
 from keras.layers.advanced_activations import ELU
-from keras.regularizers import l2, activity_l2
+from keras.regularizers import l2
 from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, Callback
 from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffleimport matplotlib.image as mpimg
+from sklearn.utils import shuffle
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
@@ -17,22 +18,33 @@ import time
 import math
 # Fix error with TF and Keras
 import tensorflow as tf
-tf.python.control_flow_ops = tf
+# tf.python.control_flow_ops = tf
 
-
+# load training data
 car_image_files = glob.glob('images/car/*.png')
 noncar_image_files = glob.glob('images/noncar/*.png')
-car_images = []
-noncar_images = []
-for file in car_image_files:
-    car_images.append(mpimg.imread(file))
-for file in noncar_image_files:
-    noncar_images.append(mpimg.imread(file))
 
-print(len(car_images), len(noncar_images))
-print(car_images[1].shape)
-
-
+def generate_training_data(batch_size=128):
+    '''
+    method for the model training data generator to load images, then yield them to the model. 
+    '''
+    X,y = ([],[])
+    while True:       
+        for i in range(batch_size/2):
+            # pick a random car image
+            img = cv2.imread(car_image_files[np.random.choice(len(car_image_files))], 0)
+            img = np.resize(img, (64,64,1))
+            X.append(img)
+            y.append(1)
+            # pick a random noncar image
+            img = cv2.imread(noncar_image_files[np.random.choice(len(noncar_image_files))], 0)
+            img = np.resize(img, (64,64,1))
+            X.append(img)
+            y.append(0)
+            if len(X) == batch_size:
+                X, y = shuffle(X, y)
+                yield (np.array(X), np.array(y))
+                X, y = ([],[])
 
 
 model = Sequential()
@@ -41,11 +53,11 @@ model = Sequential()
 model.add(Lambda(lambda x: x/127.5 - 1.0,input_shape=(64,64,1)))
 
 # Add three 5x5 convolution layers (output depth 6, 16, and 24), each with 2x2 stride
-model.add(Convolution2D(6, 5, 5, subsample=(2, 2), border_mode='valid', W_regularizer=l2(0.001)))
+model.add(Convolution2D(6, (5, 5), strides=(2, 2), padding='valid', kernel_regularizer=l2(0.001)))
 model.add(ELU())
-model.add(Convolution2D(16, 5, 5, subsample=(2, 2), border_mode='valid', W_regularizer=l2(0.001)))
+model.add(Convolution2D(16, (5, 5), strides=(2, 2), padding='valid', kernel_regularizer=l2(0.001)))
 model.add(ELU())
-model.add(Convolution2D(24, 5, 5, subsample=(2, 2), border_mode='valid', W_regularizer=l2(0.001)))
+model.add(Convolution2D(24, (5, 5), strides=(2, 2), padding='valid', kernel_regularizer=l2(0.001)))
 model.add(ELU())
 
 #model.add(Dropout(0.50))
@@ -54,38 +66,31 @@ model.add(ELU())
 model.add(Flatten())
 
 # Add two fully connected layers (depth 100, 50), elu activation (and dropouts)
-model.add(Dense(100, W_regularizer=l2(0.001)))
+model.add(Dense(100, kernel_regularizer=l2(0.001)))
 model.add(ELU())
 #model.add(Dropout(0.50))
-model.add(Dense(50, W_regularizer=l2(0.001)))
+model.add(Dense(50, kernel_regularizer=l2(0.001)))
 model.add(ELU())
 #model.add(Dropout(0.50))
 
 # Add a fully connected output layer
-model.add(Dense(2))
+model.add(Dense(1))
 
 # Compile and train the model, 
 model.compile(optimizer=Adam(lr=1e-4), loss='mse')
 
-# initialize generators
-train_gen = generate_training_data(image_paths_train, angles_train, validation_flag=False, batch_size=64)
-val_gen = generate_training_data(image_paths_train, angles_train, validation_flag=True, batch_size=64)
-test_gen = generate_training_data(image_paths_test, angles_test, validation_flag=True, batch_size=64)
+# initialize generator
+train_gen = generate_training_data()
 
 checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
 
-#history = model.fit(X, y, batch_size=128, nb_epoch=5, validation_split=0.2, verbose=2)
-history = model.fit_generator(train_gen, validation_data=val_gen, nb_val_samples=2560, samples_per_epoch=23040, 
-                                nb_epoch=5, verbose=2, callbacks=[checkpoint])
+history = model.fit_generator(train_gen, validation_data=train_gen, nb_val_samples=200, samples_per_epoch=1000, 
+                                nb_epoch=15, verbose=2, callbacks=[checkpoint])
 # print('Test Loss:', model.evaluate_generator(test_gen, 128))
 
 print(model.summary())
 
-# # visualize some predictions
-# n = 12
-# X_test,y_test = generate_training_data_for_visualization(image_paths_test[:n], angles_test[:n], batch_size=n,                                                                     validation_flag=True)
 # y_pred = model.predict(X_test, n, verbose=2)
-# visualize_dataset(X_test, y_test, y_pred)
 
 # Save model data
 model.save_weights('./model.h5')
