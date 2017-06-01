@@ -52,3 +52,5 @@ CATKIN_IGNORE
 .vscode/
 
 /devel/share/lidarConfig.cmake
+
+.DS_Store

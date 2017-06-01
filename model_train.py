@@ -24,27 +24,28 @@ import tensorflow as tf
 car_image_files = glob.glob('images/car/*.png')
 noncar_image_files = glob.glob('images/noncar/*.png')
 
-def generate_training_data(batch_size=128):
+def generate_training_data(batch_size=1500):
     '''
     method for the model training data generator to load images, then yield them to the model. 
     '''
     X,y = ([],[])
     while True:       
-        for i in range(batch_size/2):
-            # pick a random car image
-            img = cv2.imread(car_image_files[np.random.choice(len(car_image_files))], 0)
-            img = np.resize(img, (64,64,1))
-            X.append(img)
-            y.append(1)
-            # pick a random noncar image
-            img = cv2.imread(noncar_image_files[np.random.choice(len(noncar_image_files))], 0)
-            img = np.resize(img, (64,64,1))
-            X.append(img)
-            y.append(0)
-            if len(X) == batch_size:
-                X, y = shuffle(X, y)
-                yield (np.array(X), np.array(y))
-                X, y = ([],[])
+        # pick a random car image
+        img_file = car_image_files[np.random.choice(len(car_image_files))]
+        img = cv2.imread(img_file, 0)
+        img = np.resize(img, (64,64,1))
+        X.append(img)
+        y.append([0,1])
+        # pick a random noncar image
+        img_file = noncar_image_files[np.random.choice(len(noncar_image_files))]
+        img = cv2.imread(img_file, 0)
+        img = np.resize(img, (64,64,1))
+        X.append(img)
+        y.append([1,0])
+        if len(X) == batch_size:
+            X, y = shuffle(X, y)
+            yield (np.array(X), np.array(y))
+            X, y = ([],[])
 
 
 model = Sequential()
@@ -74,18 +75,20 @@ model.add(ELU())
 #model.add(Dropout(0.50))
 
 # Add a fully connected output layer
-model.add(Dense(1))
+model.add(Dense(2, kernel_initializer='uniform'))
+model.add(Activation('softmax'))
 
 # Compile and train the model, 
-model.compile(optimizer=Adam(lr=1e-4), loss='mse')
+model.compile(optimizer=Adam(lr=1e-4), loss='categorical_crossentropy', metrics=['accuracy'])
 
 # initialize generator
 train_gen = generate_training_data()
+validation_gen = generate_training_data()
 
 checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
 
-history = model.fit_generator(train_gen, validation_data=train_gen, nb_val_samples=200, samples_per_epoch=1000, 
-                                nb_epoch=15, verbose=2, callbacks=[checkpoint])
+history = model.fit_generator(train_gen, validation_data=validation_gen, 
+    steps_per_epoch=10, validation_steps=2, epochs=10, verbose=2, callbacks=[checkpoint])
 # print('Test Loss:', model.evaluate_generator(test_gen, 128))
 
 print(model.summary())
