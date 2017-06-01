@@ -93,7 +93,15 @@ history = model.fit_generator(train_gen, validation_data=validation_gen,
 
 print(model.summary())
 
-# y_pred = model.predict(X_test, n, verbose=2)
+for i in range(10):
+    img_file = car_image_files[i]
+    img = cv2.imread(img_file, 0)
+    img = np.resize(img, (1,64,64,1))
+    print("car predicted as: ", model.predict(img, 1, verbose=2))
+    img_file = noncar_image_files[i]
+    img = cv2.imread(img_file, 0)
+    img = np.resize(img, (1,64,64,1))
+    print("noncar predicted as: ", model.predict(img, 1, verbose=2))
 
 # Save model data
 model.save_weights('./model.h5')
